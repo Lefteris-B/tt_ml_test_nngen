@@ -1,4 +1,7 @@
 import tensorflow as tf
+import onnx
+import numpy as np
+import nngen as ng
 from tensorflow.keras.datasets import mnist
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Flatten
@@ -26,7 +29,7 @@ model.compile(optimizer='adam',
               metrics=['accuracy'])
 
 # Train the model
-model.fit(x_train, y_train, epochs=1, batch_size=32, validation_data=(x_test, y_test))
+model.fit(x_train, y_train, epochs=5, batch_size=32, validation_data=(x_test, y_test))
 
 # Evaluate the model
 loss, accuracy = model.evaluate(x_test, y_test)
@@ -34,9 +37,6 @@ print(f'Accuracy: {accuracy}')
 
 # Save the model
 model.save('mnist_model_no_softmax.h5')
-
-import onnx
-import numpy as np
 
 # Load the ONNX model
 onnx_model = onnx.load('mnist_model_no_softmax.onnx')
@@ -59,9 +59,6 @@ for node in onnx_model.graph.node:
 onnx.save(onnx_model, 'modified_mnist_model_no_softmax.onnx')
 print("Modified ONNX model saved as modified_mnist_model_no_softmax.onnx")
 
-import onnx
-import numpy as np
-
 # Load the ONNX model
 onnx_model = onnx.load('mnist_model_no_softmax.onnx')
 
@@ -83,9 +80,6 @@ for node in onnx_model.graph.node:
 # Save the modified ONNX model
 onnx.save(onnx_model, 'modified_mnist_model_no_softmax.onnx')
 print("Modified ONNX model saved as modified_mnist_model_no_softmax.onnx")
-
-import nngen as ng
-import numpy as np
 
 # Data types
 act_dtype = ng.int16
