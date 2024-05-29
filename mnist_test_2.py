@@ -1,0 +1,126 @@
+import tensorflow as tf
+import onnx
+import numpy as np
+import nngen as ng
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten
+from tensorflow.keras.utils import to_categorical
+import tf2onnx
+
+# Load MNIST dataset
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train, x_test = x_train / 255.0, x_test / 255.0
+
+# One-hot encode the labels
+y_train = to_categorical(y_train, 10)
+y_test = to_categorical(y_test, 10)
+
+# Define the model
+model = Sequential([
+    Flatten(input_shape=(28, 28)),
+    Dense(128, activation='relu'),
+    Dense(64, activation='relu'),
+    Dense(10)  # Remove the softmax layer
+])
+
+# Compile the model
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Train the model
+model.fit(x_train, y_train, epochs=1, batch_size=32, validation_data=(x_test, y_test))
+
+# Evaluate the model
+loss, accuracy = model.evaluate(x_test, y_test)
+print(f'Accuracy: {accuracy}')
+
+# Convert the model to ONNX format
+onnx_model_proto, _ = tf2onnx.convert.from_keras(model, input_signature=(tf.TensorSpec((None, 28, 28), tf.float32),))
+onnx.save(onnx_model_proto, 'mnist_model_no_softmax.onnx')
+
+# Load and modify the ONNX model
+onnx_model = onnx.load('mnist_model_no_softmax.onnx')
+
+# Ensure all dimensions are explicitly set
+for initializer in onnx_model.graph.initializer:
+    if len(initializer.dims) == 0:
+        initializer.dims.extend([1])
+
+for node in onnx_model.graph.node:
+    if node.op_type == 'Gemm':
+        for input_name in node.input:
+            input_tensor = next((tensor for tensor in onnx_model.graph.initializer if tensor.name == input_name), None)
+            if input_tensor and len(input_tensor.dims) == 0:
+                input_tensor.dims.extend([1])
+
+# Save the modified ONNX model
+onnx.save(onnx_model, 'modified_mnist_model_no_softmax.onnx')
+print("Modified ONNX model saved as modified_mnist_model_no_softmax.onnx")
+
+# Data types
+act_dtype = ng.int16
+weight_dtype = ng.int16
+bias_dtype = ng.int16
+scale_dtype = ng.int16
+
+# Input
+input_layer = ng.placeholder(dtype=act_dtype, shape=(1, 28, 28, 1), name='input_layer')  # Added channel dimension
+
+# Flatten the input
+input_flattened = ng.reshape(input_layer, (1, 784), name='input_flattened')
+
+# Layer 1: Dense (784 -> 128), ReLU
+w0 = ng.variable(dtype=weight_dtype, shape=(784, 128), name='w0')
+b0 = ng.variable(dtype=bias_dtype, shape=(128,), name='b0')
+
+dense1 = ng.matmul(input_flattened, w0, bias=b0, act_func=ng.relu, name='dense1')
+
+# Layer 2: Dense (128 -> 64), ReLU
+w1 = ng.variable(dtype=weight_dtype, shape=(128, 64), name='w1')
+b1 = ng.variable(dtype=bias_dtype, shape=(64,), name='b1')
+
+dense2 = ng.matmul(dense1, w1, bias=b1, act_func=ng.relu, name='dense2')
+
+# Layer 3: Dense (64 -> 10)
+w2 = ng.variable(dtype=weight_dtype, shape=(64, 10), name='w2')
+b2 = ng.variable(dtype=bias_dtype, shape=(10,), name='b2')
+
+output_layer = ng.matmul(dense2, w2, bias=b2, name='output_layer')
+
+# Extract weights from the trained model
+weights = model.get_weights()
+
+# Assign the actual trained weights to the NNgen variables
+def assign_weights(var, weight_array):
+    weight_array = np.clip(weight_array, -5.0, 5.0)
+    weight_array = weight_array * (2.0 ** (var.dtype.width - 1) - 1) / 5.0
+    weight_array = np.round(weight_array).astype(np.int64)
+    var.set_value(weight_array)
+
+assign_weights(w0, weights[0].T)
+assign_weights(b0, weights[1])
+assign_weights(w1, weights[2].T)
+assign_weights(b1, weights[3])
+assign_weights(w2, weights[4].T)
+assign_weights(b2, weights[5])
+
+# Define hardware attributes
+for op in [dense1, dense2, output_layer]:
+    op.attribute(par_ich=2, par_och=2, cshamt_out=weight_dtype.width + 1)
+
+# Convert to Verilog
+silent = False
+axi_datawidth = 32
+
+verilog_gen = ng.to_veriloggen([output_layer], 'mnist_model', silent=silent, config={'maxi_datawidth': axi_datawidth})
+
+# Generate the Verilog HDL code as a string
+verilog_code = verilog_gen.to_verilog()
+
+# Save the Verilog code to a file
+with open('mnist_model.v', 'w') as f:
+    f.write(verilog_code)
+
+print("Verilog model saved as mnist_model.v")
