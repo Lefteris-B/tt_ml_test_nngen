@@ -30,7 +30,7 @@ model.compile(optimizer='adam',
               metrics=['accuracy'])
 
 # Train the model
-model.fit(x_train, y_train, epochs=1, batch_size=32, validation_data=(x_test, y_test))
+model.fit(x_train, y_train, epochs=5, batch_size=32, validation_data=(x_test, y_test))
 
 # Evaluate the model
 loss, accuracy = model.evaluate(x_test, y_test)
@@ -120,7 +120,7 @@ verilog_gen = ng.to_veriloggen([output_layer], 'mnist_model', silent=silent, con
 verilog_code = verilog_gen.to_verilog()
 
 # Save the Verilog code to a file
-with open('mnist_model.v', 'w') as f:
+with open('mnist_model_2.v', 'w') as f:
     f.write(verilog_code)
 
-print("Verilog model saved as mnist_model.v")
+print("Verilog model saved as mnist_model_2.v")
